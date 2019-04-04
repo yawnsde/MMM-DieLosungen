@@ -1,9 +1,9 @@
 /* global Module */
 
 /* Magic Mirror
- * Module: MMM-DieLosungen
+ * Module: MMM-KA
  *
- * By yawnsde
+ * By Stefan
  * MIT Licensed.
  */
 
@@ -21,17 +21,56 @@ Module.register("MMM-DieLosungen", {
 	start: function() {
 		var self = this;
 		var dataRequest = null;
-		var displayText = "losung";
+		var dataNotification = null;
 
 		//Flag for check if module is loaded
 		this.loaded = false;
-		
+
 		// Schedule update timer.
-		this.updateData();
+		this.getData();
 		setInterval(function() {
 			self.updateDom();
 		}, this.config.updateInterval);
+
+		this.sendSocketNotification("CONFIG", this.config);
+
 	},
+
+	/*
+	 * getData
+	 * function example return data and show it in the module wrapper
+	 * get a URL request
+	 *
+	 */
+	getData: function() {
+		var self = this;
+
+		var urlApi = "https://jsonplaceholder.typicode.com/posts/1";
+		var retry = true;
+
+		var dataRequest = new XMLHttpRequest();
+		dataRequest.open("GET", urlApi, true);
+		dataRequest.onreadystatechange = function() {
+			console.log(this.readyState);
+			if (this.readyState === 4) {
+				console.log(this.status);
+				if (this.status === 200) {
+					self.processData(JSON.parse(this.response));
+				} else if (this.status === 401) {
+					self.updateDom(self.config.animationSpeed);
+					Log.error(self.name, this.status);
+					retry = false;
+				} else {
+					Log.error(self.name, "Could not load data.");
+				}
+				if (retry) {
+					self.scheduleUpdate((self.loaded) ? -1 : self.config.retryDelay);
+				}
+			}
+		};
+		dataRequest.send();
+	},
+
 
 	/* scheduleUpdate()
 	 * Schedule next update.
@@ -44,10 +83,10 @@ Module.register("MMM-DieLosungen", {
 		if (typeof delay !== "undefined" && delay >= 0) {
 			nextLoad = delay;
 		}
-
+		nextLoad = nextLoad ;
 		var self = this;
 		setTimeout(function() {
-			self.updateData();
+			self.getData();
 		}, nextLoad);
 	},
 
@@ -58,25 +97,33 @@ Module.register("MMM-DieLosungen", {
 		var wrapper = document.createElement("div");
 		// If this.dataRequest is not empty
 		if (this.dataRequest) {
-
-			
 			var wrapperDataRequest = document.createElement("div");
-			wrapperDataRequest.innerHTML = (this.displayText == "losung" ? this.dataRequest["Losungstext"] : this.dataRequest["Lehrtext"]);
+			// check format https://jsonplaceholder.typicode.com/posts/1
+			wrapperDataRequest.innerHTML = this.dataRequest.title;
 
 			var labelDataRequest = document.createElement("label");
-			labelDataRequest.innerHTML = (this.displayText == "losung" ? this.dataRequest["Losungsvers"] : this.dataRequest["Lehrtextvers"]);
+			// Use translate function
+			//             this id defined in translations files
+			labelDataRequest.innerHTML = this.translate("TITLE");
 
 
 			wrapper.appendChild(labelDataRequest);
 			wrapper.appendChild(wrapperDataRequest);
-			this.displayText = (this.displayText == "losung" ? "lehrtext" : "losung");			
 		}
 
+		// Data from helper
+		if (this.dataNotification) {
+			var wrapperDataNotification = document.createElement("div");
+			// translations  + datanotification
+			wrapperDataNotification.innerHTML =  this.translate("UPDATE") + ": " + this.dataNotification.date;
+
+			wrapper.appendChild(wrapperDataNotification);
+		}
 		return wrapper;
 	},
 
 	getScripts: function() {
-		return ["moment.js"];
+		return [];
 	},
 
 	getStyles: function () {
@@ -85,58 +132,23 @@ Module.register("MMM-DieLosungen", {
 		];
 	},
 
-	// Process Data that was read from the file.
 	processData: function(data) {
-		// convert our data from the file into an array
-		var lines = data.replace(/\n+$/, "").split("\n");
-		var singleline = "";
-		var currentDate = moment().format('DD.MM.YYYY');
-		
-		for (var i = 1; i< lines.length; i++) {
-			singleline = lines[i].split("\t");
-
-			/* 	structure in csv file
-				0 = Datum
-				1 = Wtag
-				2 = Sonntag
-				3 = Losungsvers
-				4 = Losungstext
-				5 = Lehrtextvers
-				6 = Lehrtext
-			*/
-
-			if (currentDate.localeCompare(singleline[0]) == 0) {
-				this.dataRequest = [];
-				this.dataRequest["Datum"] = singleline[0];
-				this.dataRequest["Wtag"] = singleline[1];
-				this.dataRequest["Sonntag"] = singleline[2];
-				this.dataRequest["Losungsvers"] = singleline[3];
-				this.dataRequest["Losungstext"] = singleline[4];
-				this.dataRequest["Lehrtextvers"] = singleline[5];
-				this.dataRequest["Lehrtext"] = singleline[6];
-				break;
-			}
-			
-		}
-
+		var self = this;
+		this.dataRequest = data;
+		if (this.loaded === false) { self.updateDom(self.config.animationSpeed) ; }
 		this.loaded = true;
-		this.updateDom(this.config.animationSpeed);
-		this.scheduleUpdate();
+
+		// the data if load
+		// send notification to helper
+		this.sendSocketNotification("MMM-KA-NOTIFICATION_TEST", data);
 	},
 
-	// Read data from file.
-	updateData: function() {
-		var self = this;
-
-		var xobj = new XMLHttpRequest();
-		xobj.open("GET", this.config.remoteFile, true);
-		xobj.onreadystatechange = function () {
-			if (xobj.readyState == 4 && xobj.status == "200") {
-				self.processData(xobj.response);
-			}
-		};
-		xobj.send();
-
-	}
-
+	// socketNotificationReceived from helper
+	socketNotificationReceived: function (notification, payload) {
+		if(notification === "MMM-KA-NOTIFICATION_TEST") {
+			// set dataNotification
+			this.dataNotification = payload;
+			this.updateDom();
+		}
+	},
 });
